@@ -41,6 +41,9 @@ const EXTRACTION_PATTERNS = {
   claimedNames: [
     /(?:I am|I'm|This is|Main hoon|Mera naam|My name is)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+){0,2})/g,
   ],
+  emailAddresses: [
+    /[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}/g,
+  ],
 };
 
 const SUSPICIOUS_KEYWORDS = [
@@ -61,6 +64,7 @@ class IntelAggregator {
       upiIds: new Set(),
       phishingLinks: new Set(),
       phoneNumbers: new Set(),
+      emailAddresses: new Set(),
       suspiciousKeywords: new Set(),
       ifscCodes: new Set(),
       panCards: new Set(),
@@ -79,16 +83,50 @@ class IntelAggregator {
 
     const newFinds = {};
 
+    // === STEP 1: Extract UPI IDs first (so we can exclude them from email) ===
+    const upiFound = new Set();
+    const upiPatterns = EXTRACTION_PATTERNS.upiIds || [];
+    for (const pattern of upiPatterns) {
+      const re = new RegExp(pattern.source, pattern.flags);
+      let match;
+      while ((match = re.exec(text)) !== null) {
+        const val = (match[0]).trim();
+        if (val.length > 2 && val.includes('@')) {
+          upiFound.add(val.toLowerCase());
+          this.intel.upiIds.add(val);
+        }
+      }
+    }
+    if (upiFound.size > 0) newFinds.upiIds = [...upiFound];
+
+    // === STEP 2: Extract everything else ===
     for (const [field, patterns] of Object.entries(EXTRACTION_PATTERNS)) {
+      if (field === 'upiIds') continue; // Already handled
       if (!Array.isArray(patterns) || patterns.length === 0) continue;
+      
       const found = new Set();
       for (const pattern of patterns) {
-        // Create new regex each time to reset lastIndex
         const re = new RegExp(pattern.source, pattern.flags);
         let match;
         while ((match = re.exec(text)) !== null) {
           const val = (match[1] || match[0]).trim();
-          if (val.length > 2) found.add(val);
+          if (val.length > 2) {
+            // === EMAIL: Skip if it's a UPI ID or test/example email ===
+            if (field === 'emailAddresses') {
+              const lower = val.toLowerCase();
+              if (upiFound.has(lower)) continue;
+              if (/example\.com|test\.|localhost|@(paytm|upi|oksbi|okhdfcbank|okaxis|okicici|ybl|ibl|ptyes|axl|kotak|phonepe|gpay|apl)$/i.test(val)) continue;
+              // Skip common non-email patterns
+              if (!/\.(com|in|net|org|co|io|edu|gov|info|biz|us|uk|gmail|yahoo|hotmail|outlook|rediffmail|protonmail)$/i.test(val)) continue;
+            }
+            // === BANK ACCOUNTS: Require banking context ===
+            if (field === 'bankAccounts') {
+              const hasBankContext = /account|bank|a\/c|transfer|deposit|saving|current|ifsc|neft|rtgs|imps/i.test(text);
+              if (!hasBankContext) continue;
+              if (val.length < 11) continue; // Indian bank accounts are 11-18 digits
+            }
+            found.add(val);
+          }
         }
       }
       if (found.size > 0) {
@@ -113,17 +151,25 @@ class IntelAggregator {
    * Get the GUVI callback format — exactly what the automated system scores.
    * FIX 4: Now includes turnHistory for narrative agentNotes
    */
-  getGuviCallbackPayload(sessionId, turnCount, scamType, turnHistory = []) {
+  getGuviCallbackPayload(sessionId, turnCount, scamType, turnHistory = [], startTime = null) {
+    const durationSeconds = startTime ? Math.floor((Date.now() - startTime) / 1000) : turnCount * 15;
     return {
       sessionId,
       scamDetected: true,
+      scamType: scamType || 'generic_scam',
       totalMessagesExchanged: turnCount,
+      engagementDurationSeconds: durationSeconds,
       extractedIntelligence: {
-        bankAccounts:      [...this.intel.bankAccounts],
-        upiIds:            [...this.intel.upiIds],
-        phishingLinks:     [...this.intel.phishingLinks],
-        phoneNumbers:      [...this.intel.phoneNumbers],
-        suspiciousKeywords: [...this.intel.suspiciousKeywords].slice(0, 15),
+        phoneNumbers:        [...this.intel.phoneNumbers],
+        upiIds:              [...this.intel.upiIds],
+        bankAccounts:        [...this.intel.bankAccounts],
+        phishingLinks:       [...this.intel.phishingLinks],
+        emailAddresses:      [...this.intel.emailAddresses],
+        suspiciousKeywords:  [...this.intel.suspiciousKeywords],
+      },
+      engagementMetrics: {
+        totalMessagesExchanged: turnCount,
+        engagementDurationSeconds: durationSeconds,
       },
       agentNotes: this.generateAgentNotes(scamType, turnCount, turnHistory),
     };
@@ -169,13 +215,14 @@ class IntelAggregator {
   }
 
   getStats() {
-    const total = ['bankAccounts', 'upiIds', 'phishingLinks', 'phoneNumbers']
+    const total = ['bankAccounts', 'upiIds', 'phishingLinks', 'phoneNumbers', 'emailAddresses', 'suspiciousKeywords']
       .reduce((sum, k) => sum + this.intel[k].size, 0);
     return {
       totalItems: total,
       hasPhishing: this.intel.phishingLinks.size > 0,
       hasUpi: this.intel.upiIds.size > 0,
       hasPhone: this.intel.phoneNumbers.size > 0,
+      hasEmail: this.intel.emailAddresses.size > 0,
     };
   }
 

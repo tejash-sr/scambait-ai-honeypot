@@ -20,15 +20,22 @@ const GUVI_CALLBACK_URL = 'https://hackathon.guvi.in/api/updateHoneyPotFinalResu
  * @param {number} turnCount - Current turn number
  * @param {string} scamType - Classified scam type
  * @param {Array} turnHistory - FIX 4: Detailed turn history for narrative agentNotes
+ * @param {number} startTime - Session start time in ms
  */
-async function fireGuviCallback(sessionId, intelAggregator, turnCount, scamType, turnHistory = []) {
-  const payload = intelAggregator.getGuviCallbackPayload(sessionId, turnCount, scamType, turnHistory);
+async function fireGuviCallback(sessionId, intelAggregator, turnCount, scamType, turnHistory = [], startTime = null) {
+  const payload = intelAggregator.getGuviCallbackPayload(sessionId, turnCount, scamType, turnHistory, startTime);
+
+  // Ensure emailAddresses is always present
+  if (!payload.extractedIntelligence.emailAddresses) {
+    payload.extractedIntelligence.emailAddresses = [];
+  }
 
   // Only fire if we have something meaningful
   const hasIntel = payload.extractedIntelligence.upiIds.length > 0
     || payload.extractedIntelligence.phoneNumbers.length > 0
     || payload.extractedIntelligence.phishingLinks.length > 0
-    || payload.extractedIntelligence.bankAccounts.length > 0;
+    || payload.extractedIntelligence.bankAccounts.length > 0
+    || payload.extractedIntelligence.emailAddresses.length > 0;
 
   if (!hasIntel && turnCount < 5) return; // Don't fire empty callbacks early
 

@@ -75,3 +75,5 @@ package-lock.json
 # Temporary files
 tmp/
 temp/
+.vercel
+.env*.local

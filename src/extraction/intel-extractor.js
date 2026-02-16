@@ -13,6 +13,7 @@ const PATTERNS = {
   panNumbers: /[A-Z]{5}[0-9]{4}[A-Z]/g,
   aadhaarNumbers: /\b\d{4}\s\d{4}\s\d{4}\b/g,
   cryptoAddresses: /\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b|0x[a-fA-F0-9]{40}/g,
+  emailAddresses: /[\w.+-]+@[\w.-]+\.(com|in|net|org|co|io|edu|gov|info|biz|gmail|yahoo|hotmail|outlook|rediffmail)/gi,
 };
 
 // Organization extraction
@@ -40,8 +41,22 @@ function extractIntelligence(text) {
 
       // Special validation for bank accounts - only include if there's banking context
       if (key === 'bankAccounts') {
-        const bankContext = /account|bank|a\/c|transfer|deposit|saving|current|ifsc/i;
+        const bankContext = /account|bank|a\/c|transfer|deposit|saving|current|ifsc|neft|rtgs|imps/i;
         if (!bankContext.test(text)) continue;
+        // Filter to valid Indian bank account lengths (11-18 digits)
+        result[key] = unique.filter(a => a.length >= 11 && a.length <= 18);
+        if (result[key].length === 0) delete result[key];
+        continue;
+      }
+
+      // Special validation for email addresses - skip UPI-like patterns
+      if (key === 'emailAddresses') {
+        result[key] = unique.filter(e => 
+          !/@(paytm|upi|oksbi|okhdfcbank|okaxis|okicici|ybl|ibl|ptyes|axl|kotak|phonepe|gpay)/i.test(e) &&
+          !e.includes('example.com') && !e.includes('test')
+        );
+        if (result[key].length === 0) delete result[key];
+        continue;
       }
 
       result[key] = unique;

@@ -43,7 +43,7 @@ const GEMINI_MODELS = [
 // Claude (TERTIARY) — Ultra-reliable paid
 const CLAUDE_CONFIG = {
   apiKey: process.env.ANTHROPIC_API_KEY,
-  model: 'claude-3-haiku-20240307',
+  model: 'claude-3-5-haiku-20241022',
   baseUrl: 'https://api.anthropic.com/v1/messages',
 };
 
@@ -218,6 +218,11 @@ async function callClaude(systemPrompt, messages, timeout = 8000) {
       content: m.content
     }));
 
+    // Ensure first message is user role (Claude requirement)
+    if (claudeMessages.length > 0 && claudeMessages[0].role !== 'user') {
+      claudeMessages.unshift({ role: 'user', content: 'Hello' });
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -230,7 +235,8 @@ async function callClaude(systemPrompt, messages, timeout = 8000) {
       },
       body: JSON.stringify({
         model: CLAUDE_CONFIG.model,
-        max_tokens: 150,
+        max_tokens: 200,
+        temperature: 0.9,
         system: systemPrompt,
         messages: claudeMessages,
       }),
@@ -240,6 +246,8 @@ async function callClaude(systemPrompt, messages, timeout = 8000) {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.log(`[KAVACH] Claude error ${response.status}: ${errText.slice(0, 100)}`);
       return { ok: false, error: `Claude ${response.status}` };
     }
 
@@ -250,7 +258,7 @@ async function callClaude(systemPrompt, messages, timeout = 8000) {
       return { ok: false, error: 'Response too short' };
     }
 
-    return { ok: true, text, provider: 'claude' };
+    return { ok: true, text, provider: 'claude', model: CLAUDE_CONFIG.model };
   } catch (e) {
     if (e.name === 'AbortError') {
       return { ok: false, timedOut: true };
