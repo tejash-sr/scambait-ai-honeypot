@@ -9,7 +9,8 @@
  * THE ENDPOINT NEVER DIES. EVEN IF ALL 4 LLMs FAIL.
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+let GoogleGenerativeAI;
+try { ({ GoogleGenerativeAI } = require('@google/generative-ai')); } catch (e) { /* optional */ }
 const { getSmartFallback } = require('../fallback/human-pool');
 
 // ══════════════════════════════════════════════════════════════════
@@ -18,7 +19,7 @@ const { getSmartFallback } = require('../fallback/human-pool');
 try { require('dotenv').config(); } catch (e) { /* dotenv optional */ }
 
 // Initialize LLM clients
-const genAI = process.env.GEMINI_API_KEY 
+const genAI = (process.env.GEMINI_API_KEY && GoogleGenerativeAI)
   ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) 
   : null;
 
