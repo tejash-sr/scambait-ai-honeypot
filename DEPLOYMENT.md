@@ -142,7 +142,7 @@ You should see the KAVACH landing page with:
 
 After deployment, you'll get a URL like:
 ```
-https://kavach-supremacy.vercel.app
+https://your-app.vercel.app
 ```
 
 Use this for GUVI submission.
